@@ -94,48 +94,40 @@ try_nqp_transform(q:to/P6CODE/, q:to/NQPCODE/);
                     if my @warpable := can_chain_junction_be_warped($node[0]) {
                         if @warpable[0] {
                             msay("unfolding the left side");
-                            my $bindstmts := QAST::Stmts.new;
                             my $juncop := $node[0][0].name eq '&infix:<|>' ?? 'if' !! 'unless';
                             my $juncname := $node[0][0].name eq '&infix:<&>' ?? '&infix:<&&>' !! '&infix:<||>';
                             my $chainop := $node[0].op;
                             my $chainname := $node[0].name;
                             my $values := $node[0][0];
                             my $rvalue := $node[0][1];
-                            my @cloned-values := [];
-                            # bind every value from the left side to a temporary local
-                            # variable in our bindstmts
-                            while +$values.list {
-                                my $name := $node.unique('junction_unfold');
-                                $bindstmts.unshift(
-                                    QAST::Op.new(:op<bind>,
-                                                 QAST::Var.new(:name($name), :scope<local>, :decl<var>),
-                                                 $values.shift()));
-                                @cloned-values.push(QAST::Var.new(:name($name), :scope<local>));
-                            }
-                            {
-                                my $name := $node.unique('junction_unfold');
-                                $bindstmts.unshift(
-                                    QAST::Op.new(:op<bind>,
-                                                 QAST::Var.new(:name($name), :scope<local>, :decl<var>),
-                                                 $rvalue));
-                                $rvalue := QAST::Var.new(:name($name), :scope<local>);
+                            my %reference;
+                            sub refer_to($valnode) {
+                                my $id := $valnode;
+                                if nqp::existskey(%reference, $id) {
+                                    return QAST::Var.new(:name(%reference{$id}), :scope<local>);
+                                }
+                                %reference{$id} := $node.unique('junction_unfold');
+                                return QAST::Op.new(:op<bind>,
+                                                    QAST::Var.new(:name(%reference{$id}),
+                                                                  :scope<local>,
+                                                                  :decl<var>),
+                                                    $valnode);
                             }
                             sub chain($value) {
                                 return QAST::Op.new(:op($chainop), :name($chainname),
-                                                    $value.shallow_clone(),
-                                                    $rvalue.shallow_clone());
+                                                    refer_to($value),
+                                                    refer_to($rvalue));
                             }
                             sub create_junc() {
                                 my $junc := QAST::Op.new(:op($juncop), :name($juncname));
-                                while +@cloned-values {
-                                    $junc.push(chain(@cloned-values.shift()));
+                                while +$values.list {
+                                    $junc.push(chain($values.shift()));
                                 }
                                 return $junc;
                             }
                             $node.shift;
                             $node.unshift(create_junc());
-                            $bindstmts.push($node);
-                            return visit($bindstmts);
+                            return visit($node);
                         } elsif @warpable[1] {
                             msay("not going to unfold the right side yet.");
                         }
