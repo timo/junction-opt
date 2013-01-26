@@ -11,8 +11,9 @@ sub try_nqp_transform($code, $transform) {
 }
 
 try_nqp_transform(q:to/P6CODE/, q:to/NQPCODE/);
-    sub test() { say "side effect!"; 3 }
-    if test()|test()|test() == test() { say "ah" };
+    my ($x, $y) = (1, 1);
+    if -1 | 0 | 1 == $x & $y { say "ah" };
+    if $x == -1 | 0 | 1 { say "oh" };
     #if 1 == 3 || 2 == 3 || 3 == 3 { say "ah" };
     P6CODE
     sub transform($node) {
@@ -92,14 +93,19 @@ try_nqp_transform(q:to/P6CODE/, q:to/NQPCODE/);
             if $node.op eq "if" || $node.op eq "unless" &&
                nqp::istype($node[0], QAST::Op) && $node[0].op eq "chain" {
                 my @warpable := can_chain_junction_be_warped($node[0]);
-                if @warpable[0] {
-                    msay("unfolding the left side");
-                    my $juncop := $node[0][0].name eq '&infix:<|>' ?? 'if' !! 'unless';
-                    my $juncname := $node[0][0].name eq '&infix:<&>' ?? '&infix:<&&>' !! '&infix:<||>';
+                my $exp-side := -1;
+                if @warpable[0] { 
+                    $exp-side := 0;
+                } elsif @warpable[1] {
+                    $exp-side := 1;
+                }
+                if $exp-side != -1 {
+                    my $juncop := $node[0][$exp-side].name eq '&infix:<|>' ?? 'if' !! 'unless';
+                    my $juncname := $node[0][$exp-side].name eq '&infix:<&>' ?? '&infix:<&&>' !! '&infix:<||>';
                     my $chainop := $node[0].op;
                     my $chainname := $node[0].name;
-                    my $values := $node[0][0];
-                    my $rvalue := $node[0][1];
+                    my $values := $node[0][$exp-side];
+                    my $ovalue := $node[0][1 - $exp-side];
                     my %reference;
                     sub refer_to($valnode) {
                         my $id := $valnode;
@@ -114,9 +120,15 @@ try_nqp_transform(q:to/P6CODE/, q:to/NQPCODE/);
                                             $valnode);
                     }
                     sub chain($value) {
-                        return QAST::Op.new(:op($chainop), :name($chainname),
-                                            $value,
-                                            refer_to($rvalue));
+                        if $exp-side == 0 {
+                            return QAST::Op.new(:op($chainop), :name($chainname),
+                                                $value,
+                                                refer_to($ovalue));
+                        } else {
+                            return QAST::Op.new(:op($chainop), :name($chainname),
+                                                refer_to($ovalue),
+                                                $value);
+                        }
                     }
                     sub create_junc() {
                         my $junc := QAST::Op.new(:op($juncop), :name($juncname));
@@ -128,8 +140,6 @@ try_nqp_transform(q:to/P6CODE/, q:to/NQPCODE/);
                     $node.shift;
                     $node.unshift(create_junc());
                     return visit($node);
-                } elsif @warpable[1] {
-                    msay("not going to unfold the right side yet.");
                 }
             }
             return visit($node);
