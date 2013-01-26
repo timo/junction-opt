@@ -115,7 +115,7 @@ try_nqp_transform(q:to/P6CODE/, q:to/NQPCODE/);
                     }
                     sub chain($value) {
                         return QAST::Op.new(:op($chainop), :name($chainname),
-                                            refer_to($value),
+                                            $value,
                                             refer_to($rvalue));
                     }
                     sub create_junc() {
